@@ -1,0 +1,154 @@
+version: 2.1
+
+# Define reusable executors
+executors:
+  docker-builder:
+    docker:
+      - image: cimg/python:3.11
+    resource_class: medium
+
+# Define reusable commands
+commands:
+  conditional_deploy_check:
+    description: "Check if deployment should proceed"
+    steps:
+      - run:
+          name: Check deployment conditions
+          command: |
+            if [ "$CIRCLE_BRANCH" != "main" ]; then
+              echo "Not on main branch, skipping deployment"
+              circleci step halt
+            fi
+            if [ "$CIRCLE_PULL_REQUEST" != "" ]; then
+              echo "Pull request detected, skipping deployment"
+              circleci step halt
+            fi
+
+# Define jobs
+jobs:
+  # Job 1: Build and test application
+  build-and-test:
+    executor: docker-builder
+    services:
+      - image: cimg/postgres:14.1
+        environment:
+          POSTGRES_USER: testuser
+          POSTGRES_PASSWORD: testpass
+          POSTGRES_DB: testdb
+    steps:
+      - checkout
+      - setup_remote_docker:
+          version: 20.10.14
+          docker_layer_caching: true
+      
+      # Install dockerize for waiting
+      - run:
+          name: Install dockerize
+          command: |
+            wget https://github.com/jwilder/dockerize/releases/download/$DOCKERIZE_VERSION/dockerize-linux-amd64-$DOCKERIZE_VERSION.tar.gz
+            sudo tar -C /usr/local/bin -xzvf dockerize-linux-amd64-$DOCKERIZE_VERSION.tar.gz
+            rm dockerize-linux-amd64-$DOCKERIZE_VERSION.tar.gz
+          environment:
+            DOCKERIZE_VERSION: v0.6.1
+      
+      # Wait for database to be ready
+      - run:
+          name: Wait for database
+          command: |
+            dockerize -wait tcp://localhost:5432 -timeout 1m
+      
+      # Install dependencies and run tests
+      - run:
+          name: Install dependencies
+          command: |
+            python -m pip install --upgrade pip
+            pip install -r src/requirements.txt
+            pip install pytest pytest-cov
+      
+      - run:
+          name: Run database migrations
+          command: |
+            export DATABASE_URL="postgresql://testuser:testpass@localhost:5432/testdb"
+            python src/app.py migrate
+      
+      # Run tests with coverage
+      - run:
+          name: Run tests
+          command: |
+            export DATABASE_URL="postgresql://testuser:testpass@localhost:5432/testdb"
+            mkdir -p test-results
+            pytest src/tests/ --cov=src --cov-report=xml --cov-report=html --junitxml=test-results/junit.xml
+      
+      # Store test results and coverage
+      - store_test_results:
+          path: test-results
+      
+      - store_artifacts:
+          path: htmlcov
+          destination: coverage-report
+      
+      # Build custom Docker image
+      - run:
+          name: Build Docker image
+          command: |
+            docker build -t my-app:$CIRCLE_SHA1 .
+            docker tag my-app:$CIRCLE_SHA1 my-app:latest
+      
+      # Save Docker image for downstream jobs
+      - run:
+          name: Save Docker image
+          command: |
+            docker save my-app:$CIRCLE_SHA1 > docker-image.tar
+      
+      - persist_to_workspace:
+          root: .
+          paths:
+            - docker-image.tar
+            - scripts/
+
+  # Job 2: Integration tests with database
+  integration-test:
+    executor: docker-builder
+    steps:
+      - checkout
+      - attach_workspace:
+          at: .
+      
+      - setup_remote_docker:
+          version: 20.10.14
+          docker_layer_caching: true
+      
+      # Load Docker image from previous job
+      - run:
+          name: Load Docker image
+          command: |
+            docker load < docker-image.tar
+      
+      # Run integration tests using docker-compose
+      - run:
+          name: Run integration tests
+          command: |
+            chmod +x scripts/test.sh
+            ./scripts/test.sh integration
+      
+      - store_test_results:
+          path: test-results-integration
+
+# Define workflows
+workflows:
+  version: 2
+  
+  # Main workflow for all commits
+  build-test-deploy:
+    jobs:
+      - build-and-test:
+          filters:
+            branches:
+              only: /.*/
+      
+      - integration-test:
+          requires:
+            - build-and-test
+          filters:
+            branches:
+              only: /.*/

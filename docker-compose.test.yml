@@ -1,0 +1,30 @@
+version: '3.8'
+services:
+  app:
+    build: .
+    environment:
+      - DATABASE_URL=postgresql://testuser:testpass@db:5432/testdb
+    depends_on:
+      db:
+        condition: service_healthy
+    command: |
+      sh -c "
+        python app.py migrate &&
+        python -m pytest tests/ -v --junitxml=/tmp/test-results/junit.xml || true
+      "
+    volumes:
+      - ./test-results-integration:/tmp/test-results
+  
+  db:
+    image: postgres:14
+    environment:
+      - POSTGRES_USER=testuser
+      - POSTGRES_PASSWORD=testpass
+      - POSTGRES_DB=testdb
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U testuser -d testdb"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    tmpfs:
+      - /var/lib/postgresql/data
