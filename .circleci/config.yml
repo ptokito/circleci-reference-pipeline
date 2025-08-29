@@ -1,11 +1,5 @@
 version: 2.1
 
-executors:
-  docker-builder:
-    docker:
-      - image: cimg/python:3.11
-    resource_class: medium
-
 commands:
   conditional_deploy_check:
     description: "Check if deployment should proceed"
@@ -20,18 +14,18 @@ commands:
 
 jobs:
   build-and-test:
-    executor: docker-builder
-    services:
+    docker:
+      - image: cimg/python:3.11
       - image: cimg/postgres:14.1
         environment:
           POSTGRES_USER: testuser
           POSTGRES_PASSWORD: testpass
           POSTGRES_DB: testdb
+    resource_class: medium
     steps:
       - checkout
       - setup_remote_docker:
           version: 20.10.14
-          docker_layer_caching: false
       
       # Install dockerize for waiting
       - run:
@@ -96,7 +90,9 @@ jobs:
             - scripts/
 
   integration-test:
-    executor: docker-builder
+    docker:
+      - image: cimg/python:3.11
+    resource_class: medium
     steps:
       - checkout
       - attach_workspace:
