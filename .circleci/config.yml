@@ -24,8 +24,7 @@ jobs:
     resource_class: medium
     steps:
       - checkout
-      - setup_remote_docker:
-          version: 20.10.14
+      - setup_remote_docker
       
       # Install dockerize for waiting
       - run:
@@ -98,8 +97,7 @@ jobs:
       - attach_workspace:
           at: .
       
-      - setup_remote_docker:
-          version: 20.10.14
+      - setup_remote_docker
       
       # Load Docker image
       - run:
