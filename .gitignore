@@ -4,3 +4,12 @@ __pycache__/
 .pytest_cache/
 htmlcov/
 .coverage
+venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+htmlcov/
+.coverage
+test-results/
+test-results-integration/
+docker-image.tar

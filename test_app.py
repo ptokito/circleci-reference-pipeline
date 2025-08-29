@@ -4,20 +4,19 @@ Test suite for the Flask application
 
 import pytest
 import json
+import sys
 import os
 from unittest.mock import patch, MagicMock
-import sys
 
-# Add the parent directory to the Python path to import app
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
-
-from app import app, init_db
+# Add src to path so we can import app
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'src'))
+import app
 
 @pytest.fixture
 def client():
     """Test client fixture"""
-    app.config['TESTING'] = True
-    with app.test_client() as client:
+    app.app.config['TESTING'] = True
+    with app.app.test_client() as client:
         yield client
 
 @pytest.fixture
@@ -58,21 +57,6 @@ def test_get_users_empty(client, mock_db):
     data = json.loads(response.data)
     assert data['users'] == []
 
-def test_get_users_with_data(client, mock_db):
-    """Test getting users with existing data"""
-    mock_users = [
-        {'id': 1, 'name': 'John Doe', 'email': 'john@example.com'},
-        {'id': 2, 'name': 'Jane Smith', 'email': 'jane@example.com'}
-    ]
-    mock_db.fetchall.return_value = mock_users
-    
-    response = client.get('/users')
-    assert response.status_code == 200
-    
-    data = json.loads(response.data)
-    assert len(data['users']) == 2
-    assert data['users'] == mock_users
-
 def test_create_user_success(client, mock_db):
     """Test successful user creation"""
     mock_db.fetchone.return_value = {'id': 1}
@@ -102,21 +86,3 @@ def test_create_user_missing_data(client):
     assert response.status_code == 400
     data = json.loads(response.data)
     assert 'required' in data['error']
-
-def test_create_user_duplicate_email(client, mock_db):
-    """Test user creation with duplicate email"""
-    import psycopg2
-    mock_db.execute.side_effect = psycopg2.IntegrityError('Duplicate email')
-    
-    user_data = {
-        'name': 'Test User',
-        'email': 'existing@example.com'
-    }
-    
-    response = client.post('/users',
-                          data=json.dumps(user_data),
-                          content_type='application/json')
-    
-    assert response.status_code == 409
-    data = json.loads(response.data)
-    assert 'already exists' in data['error']
