@@ -1,15 +1,28 @@
-venv/
+# Python
 __pycache__/
-*.pyc
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+
+# Testing
 .pytest_cache/
-htmlcov/
 .coverage
-venv/
-__pycache__/
-*.pyc
-.pytest_cache/
 htmlcov/
-.coverage
 test-results/
 test-results-integration/
+
+# Virtual environments
+venv/
+env/
+
+# CircleCI artifacts
 docker-image.tar
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db

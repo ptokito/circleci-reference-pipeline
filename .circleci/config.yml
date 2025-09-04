@@ -114,9 +114,51 @@ jobs:
             chmod +x scripts/test.sh
             ./scripts/test.sh integration
 
+  deploy:
+    docker:
+      - image: cimg/python:3.11
+    resource_class: medium
+    working_directory: ~/project
+    steps:
+      - checkout
+      - attach_workspace:
+          at: .
+      
+      - conditional_deploy_check
+      
+      - setup_remote_docker
+      
+      # Load Docker image
+      - run:
+          name: Load Docker image
+          command: |
+            docker load < docker-image.tar
+      
+      # Install Heroku CLI
+      - run:
+          name: Install Heroku CLI
+          command: |
+            curl https://cli-assets.heroku.com/install.sh | sh
+      
+      # Deploy to Heroku
+      - run:
+          name: Deploy to Heroku
+          command: |
+            # Login to Heroku Container Registry
+            echo $HEROKU_API_KEY | docker login --username=_ --password-stdin registry.heroku.com
+            
+            # Tag image for Heroku Container Registry
+            docker tag my-app:$CIRCLE_SHA1 registry.heroku.com/$HEROKU_APP_NAME/web
+            
+            # Push to Heroku Container Registry
+            docker push registry.heroku.com/$HEROKU_APP_NAME/web
+            
+            # Release the image
+            heroku container:release web -a $HEROKU_APP_NAME
+
 workflows:
   version: 2
-  build-test:
+  build-test-deploy:
     jobs:
       - build-and-test:
           filters:
@@ -129,3 +171,10 @@ workflows:
           filters:
             branches:
               only: /.*/
+      
+      - deploy:
+          requires:
+            - integration-test
+          filters:
+            branches:
+              only: main

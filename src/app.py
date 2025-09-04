@@ -49,6 +49,46 @@ def init_db():
     finally:
         conn.close()
 
+@app.route('/')
+def index():
+    """Homepage with navigation links"""
+    return '''
+    <html>
+        <head>
+            <title>CircleCI Demo App</title>
+            <style>
+                body { font-family: Arial, sans-serif; margin: 40px; }
+                h1 { color: #333; }
+                a { color: #007cba; text-decoration: none; margin-right: 20px; }
+                a:hover { text-decoration: underline; }
+                .status { background: #f0f0f0; padding: 20px; border-radius: 5px; margin-top: 20px; }
+            </style>
+        </head>
+        <body>
+            <h1>CircleCI Demo Application</h1>
+            <p>Welcome to the CircleCI reference pipeline demonstration!</p>
+            
+            <div class="status">
+                <h3>Available Endpoints:</h3>
+                <p><a href="/health">Health Check</a> - Application and database status</p>
+                <p><a href="/users">View Users</a> - List all users (JSON)</p>
+                <p><strong>POST /users</strong> - Create new user (requires JSON: {"name": "...", "email": "..."})</p>
+            </div>
+            
+            <div class="status">
+                <h3>Pipeline Features Demonstrated:</h3>
+                <ul>
+                    <li>Custom Docker image built in CircleCI</li>
+                    <li>PostgreSQL database integration with sidecar container</li>
+                    <li>Automated testing with result collection</li>
+                    <li>Conditional deployment (main branch only)</li>
+                    <li>Artifact publishing to Heroku PaaS</li>
+                </ul>
+            </div>
+        </body>
+    </html>
+    '''
+
 @app.route('/health')
 def health_check():
     """Health check endpoint"""
@@ -107,4 +147,5 @@ if __name__ == '__main__':
         print("Database migration completed")
     else:
         init_db()
-        app.run(host='0.0.0.0', port=8000, debug=False)
+        port = int(os.environ.get('PORT', 8000))
+        app.run(host='0.0.0.0', port=port, debug=False)
