@@ -144,6 +144,9 @@ jobs:
       - run:
           name: Deploy to Heroku
           command: |
+            # Set container stack
+            heroku stack:set container -a $HEROKU_APP_NAME
+            
             # Login to Heroku Container Registry
             echo $HEROKU_API_KEY | docker login --username=_ --password-stdin registry.heroku.com
             
