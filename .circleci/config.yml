@@ -1,5 +1,7 @@
 version: 2.1
 
+# REUSABLE COMMANDS
+# Define custom commands that can be used across multiple jobs
 commands:
   conditional_deploy_check:
     description: "Check if deployment should proceed"
@@ -7,27 +9,41 @@ commands:
       - run:
           name: Check deployment conditions
           command: |
+            # Only allow deployment from the main branch
+            # This prevents feature branches from deploying to production
             if [ "$CIRCLE_BRANCH" != "main" ]; then
               echo "Not on main branch, skipping deployment"
-              circleci step halt
+              circleci step halt  # Stops execution without failing the job
             fi
 
+# JOB DEFINITIONS
+# Each job runs in an isolated environment with its own containers
 jobs:
+  # JOB 1: BUILD AND TEST
+  # This job handles code compilation, testing, and Docker image creation
   build-and-test:
     docker:
+      # PRIMARY CONTAINER: Python environment for running the application
       - image: cimg/python:3.11
+      # SIDECAR CONTAINER: PostgreSQL database for testing
+      # This runs alongside the primary container, accessible via localhost:5432
       - image: cimg/postgres:14.1
         environment:
           POSTGRES_USER: testuser
           POSTGRES_PASSWORD: testpass
           POSTGRES_DB: testdb
-    resource_class: medium
-    working_directory: ~/project
+    resource_class: medium  # Allocate medium compute resources
+    working_directory: ~/project  # Set working directory for all commands
+    
     steps:
+      # STEP 1: Get source code from GitHub
       - checkout
+      
+      # STEP 2: Enable Docker-in-Docker for building containers
       - setup_remote_docker
       
-      # Install dockerize for waiting
+      # STEP 3: Install dockerize utility
+      # This tool waits for services to be ready before proceeding
       - run:
           name: Install dockerize
           command: |
@@ -37,147 +53,181 @@ jobs:
           environment:
             DOCKERIZE_VERSION: v0.6.1
       
-      # Wait for database
+      # STEP 4: Wait for PostgreSQL to be ready
+      # The sidecar container needs time to initialize before we can connect
       - run:
           name: Wait for database
           command: |
             dockerize -wait tcp://localhost:5432 -timeout 1m
       
-      # Install dependencies and run tests
+      # STEP 5: Install Python dependencies
       - run:
           name: Install dependencies
           command: |
             python -m pip install --upgrade pip
-            pip install -r src/requirements.txt
-            pip install pytest pytest-cov
+            pip install -r src/requirements.txt  # Install app dependencies
+            pip install pytest pytest-cov       # Install testing tools
       
-      # Run database migrations
+      # STEP 6: Set up database schema
+      # Run database migrations to create tables and initial data
       - run:
           name: Run database migrations
           command: |
             export DATABASE_URL="postgresql://testuser:testpass@localhost:5432/testdb"
             cd src && python app.py migrate
       
-      # Run tests
+      # STEP 7: Execute test suite
+      # Run tests against the live PostgreSQL database
       - run:
           name: Run tests
           command: |
             export DATABASE_URL="postgresql://testuser:testpass@localhost:5432/testdb"
             mkdir -p test-results
+            # Generate JUnit XML for CircleCI test reporting
             python -m pytest test_app_working.py --junitxml=test-results/junit.xml
       
-      # Store test results
+      # STEP 8: Save test results for CircleCI dashboard
       - store_test_results:
           path: test-results
       
-      # Build Docker image
+      # STEP 9: Build custom Docker image
+      # Create production-ready container with commit hash tagging
       - run:
           name: Build Docker image
           command: |
-            docker build -t my-app:$CIRCLE_SHA1 .
-            docker tag my-app:$CIRCLE_SHA1 my-app:latest
+            docker build -t my-app:$CIRCLE_SHA1 .      # Tag with commit hash
+            docker tag my-app:$CIRCLE_SHA1 my-app:latest  # Also tag as latest
       
-      # Save Docker image for downstream jobs
+      # STEP 10: Save Docker image for downstream jobs
+      # Convert image to tar file for sharing between jobs
       - run:
           name: Save Docker image
           command: |
             docker save my-app:$CIRCLE_SHA1 > docker-image.tar
       
+      # STEP 11: Share artifacts with downstream jobs
+      # Persist files that other jobs will need
       - persist_to_workspace:
           root: .
           paths:
-            - docker-image.tar
-            - scripts/
+            - docker-image.tar  # Docker image for deployment
+            - scripts/          # Automation scripts
 
+  # JOB 2: INTEGRATION TESTING
+  # This job tests the complete containerized application
   integration-test:
     docker:
-      - image: cimg/python:3.11
+      - image: cimg/python:3.11  # Only need Python environment for this job
     resource_class: medium
     working_directory: ~/project
+    
     steps:
+      # STEP 1: Get source code
       - checkout
+      
+      # STEP 2: Get artifacts from previous job
+      # This includes the Docker image and scripts
       - attach_workspace:
           at: .
       
+      # STEP 3: Enable Docker for integration testing
       - setup_remote_docker
       
-      # Load Docker image
+      # STEP 4: Load the Docker image built in previous job
+      # This avoids rebuilding the same image
       - run:
           name: Load Docker image
           command: |
             docker load < docker-image.tar
       
-      # Run integration tests
+      # STEP 5: Run integration tests
+      # Test the complete containerized application
       - run:
           name: Run integration tests
           command: |
-            chmod +x scripts/test.sh
-            ./scripts/test.sh integration
+            chmod +x scripts/test.sh  # Make script executable
+            ./scripts/test.sh integration  # Run Docker-based tests
 
+  # JOB 3: DEPLOYMENT
+  # This job publishes the application to Heroku PaaS
   deploy:
     docker:
       - image: cimg/python:3.11
     resource_class: medium
     working_directory: ~/project
+    
     steps:
+      # STEP 1: Get source code
       - checkout
+      
+      # STEP 2: Get artifacts from previous jobs
       - attach_workspace:
           at: .
       
+      # STEP 3: Check if deployment should proceed
+      # Uses the custom command defined above
       - conditional_deploy_check
       
+      # STEP 4: Enable Docker for deployment
       - setup_remote_docker
       
-      # Load Docker image
+      # STEP 5: Load the tested Docker image
       - run:
           name: Load Docker image
           command: |
             docker load < docker-image.tar
       
-      # Install Heroku CLI
+      # STEP 6: Install Heroku CLI
+      # Required for container registry operations
       - run:
           name: Install Heroku CLI
           command: |
             curl https://cli-assets.heroku.com/install.sh | sh
       
-      # Deploy to Heroku
+      # STEP 7: Deploy to Heroku PaaS
+      # Complete artifact publishing workflow
       - run:
           name: Deploy to Heroku
           command: |
-            # Set container stack
+            # Configure Heroku app for container deployment
             heroku stack:set container -a $HEROKU_APP_NAME
             
-            # Login to Heroku Container Registry
+            # Authenticate with Heroku Container Registry using API key
             echo $HEROKU_API_KEY | docker login --username=_ --password-stdin registry.heroku.com
             
-            # Tag image for Heroku Container Registry
+            # Tag image for Heroku's registry format
             docker tag my-app:$CIRCLE_SHA1 registry.heroku.com/$HEROKU_APP_NAME/web
             
-            # Push to Heroku Container Registry
+            # Push container to Heroku Container Registry
             docker push registry.heroku.com/$HEROKU_APP_NAME/web
             
-            # Release the image
+            # Release the new version to production
             heroku container:release web -a $HEROKU_APP_NAME
 
+# WORKFLOW ORCHESTRATION
+# Define how jobs connect and when they run
 workflows:
   version: 2
   build-test-deploy:
     jobs:
+      # Job 1: Always runs on any branch
       - build-and-test:
           filters:
             branches:
-              only: /.*/
+              only: /.*/  # Run on all branches
       
+      # Job 2: Runs after build-and-test succeeds, on any branch
       - integration-test:
           requires:
-            - build-and-test
+            - build-and-test  # Wait for first job to complete
           filters:
             branches:
-              only: /.*/
+              only: /.*/  # Run on all branches
       
+      # Job 3: Only runs after integration tests pass AND on main branch
       - deploy:
           requires:
-            - integration-test
+            - integration-test  # Wait for integration tests
           filters:
             branches:
-              only: main
+              only: main  # Only deploy from main branch

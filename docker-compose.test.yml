@@ -1,30 +1,77 @@
 version: '3.8'
+# Docker Compose file format version - determines available features
+
 services:
+  # SERVICE 1: APPLICATION CONTAINER
   app:
     build: .
+    # Build Docker image from Dockerfile in current directory (.)
+    # This creates a custom container with your Flask application
+    
     environment:
+      # Environment variables passed to the application container
       - DATABASE_URL=postgresql://testuser:testpass@db:5432/testdb
+      # Points to the PostgreSQL service defined below
+      # 'db' is the service name, Docker Compose creates internal DNS for it
+    
     depends_on:
+      # Service dependency configuration
       db:
         condition: service_healthy
+        # Wait for 'db' service to be healthy before starting 'app'
+        # Uses the health check defined in the db service
+    
     command: |
+      # Override the default container command with a custom startup sequence
       sh -c "
         python app.py migrate &&
         python -m pytest tests/ -v --junitxml=/tmp/test-results/junit.xml || true
       "
+      # Multi-step command breakdown:
+      # 1. python app.py migrate: Run database migrations first
+      # 2. &&: Only run tests if migration succeeds
+      # 3. python -m pytest tests/ -v: Run test suite with verbose output
+      # 4. --junitxml=/tmp/test-results/junit.xml: Generate XML test report
+      # 5. || true: Don't fail container if tests fail (for CI reporting)
+    
     volumes:
+      # Mount host directory to container for accessing test results
       - ./test-results-integration:/tmp/test-results
-  
+      # Maps local 'test-results-integration' folder to container's '/tmp/test-results'
+      # Allows test results to persist after container stops
+
+  # SERVICE 2: DATABASE CONTAINER
   db:
     image: postgres:14
+    # Use official PostgreSQL 14 image from Docker Hub
+    # No custom build needed - this is an off-the-shelf database image
+    
     environment:
-      - POSTGRES_USER=testuser
-      - POSTGRES_PASSWORD=testpass
-      - POSTGRES_DB=testdb
+      # PostgreSQL configuration through environment variables
+      - POSTGRES_USER=testuser      # Database username
+      - POSTGRES_PASSWORD=testpass  # Database password
+      - POSTGRES_DB=testdb         # Initial database name
+    
     healthcheck:
+      # Define how Docker determines if the database is ready
       test: ["CMD-SHELL", "pg_isready -U testuser -d testdb"]
+      # pg_isready: PostgreSQL utility that checks if server is ready for connections
+      # -U testuser: Connect as specified user
+      # -d testdb: Check specific database
+      
       interval: 10s
+      # Run health check every 10 seconds
+      
       timeout: 5s
+      # Give each health check 5 seconds to complete
+      
       retries: 5
+      # Try 5 times before marking as unhealthy
+      # Total wait time: up to 50 seconds for database to be ready
+    
     tmpfs:
+      # Use temporary filesystem for database data
       - /var/lib/postgresql/data
+      # Store database files in memory instead of on disk
+      # Advantages: Fast performance, automatic cleanup
+      # Disadvantages: Data lost when container stops (perfect for testing)
