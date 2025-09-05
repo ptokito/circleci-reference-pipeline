@@ -12,8 +12,8 @@ WORKDIR /app
 
 # Install build dependencies
 RUN apt-get update && apt-get install -y \
-    gcc \        # C compiler needed for building Python packages with C extensions
-    libpq-dev \  # PostgreSQL development headers for psycopg2 compilation
+    gcc \
+    libpq-dev \
     && rm -rf /var/lib/apt/lists/*
 # Clean up package lists to reduce image size
 
@@ -32,7 +32,7 @@ WORKDIR /app
 
 # Install runtime dependencies
 RUN apt-get update && apt-get install -y \
-    libpq5 \     # PostgreSQL runtime library (without dev headers)
+    libpq5 \
     && rm -rf /var/lib/apt/lists/*
 # Only install what's needed to run the application
 
@@ -44,6 +44,10 @@ COPY --from=builder /usr/local/bin /usr/local/bin
 # Copy application code
 COPY src/ .
 # Copy application source code to container
+
+# Copy test file for integration tests
+COPY test_app_working.py .
+# Include test file for CI/CD integration testing
 
 # SECURITY: Create non-root user
 RUN groupadd -r appuser && useradd -r -g appuser appuser
@@ -59,7 +63,3 @@ EXPOSE 8000
 
 CMD ["python", "app.py"]
 # Default command to run when container starts
-
-# Copy test file for integration tests
-COPY test_app_working.py .
-# Include test file for CI/CD integration testing
