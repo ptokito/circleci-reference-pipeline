@@ -62,4 +62,4 @@ EXPOSE 8000
 # This is informational - doesn't actually open the port
 
 CMD ["python", "app.py"]
-# Default command to run when container starts
+# Default command to run when the container starts
